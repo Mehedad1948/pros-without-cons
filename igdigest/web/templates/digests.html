@@ -1,0 +1,21 @@
+{% extends "base.html" %}
+{% block title %}Digests · Instagram digest{% endblock %}
+{% block content %}
+<div class="card">
+  <h1>Digests</h1>
+  <table class="small">
+    <tr><th>#</th><th>Created</th><th>Kind</th><th>Window</th><th>Items</th><th>Summarizer</th><th>Status</th></tr>
+    {% for d in digests %}
+    <tr>
+      <td><a href="/digests/{{ d.id }}">{{ d.id }}</a></td>
+      <td>{{ d.created_at | local }}</td>
+      <td>{{ d.kind }} ({{ d.trigger }}){% if d.is_fixture %} <span class="badge s-skipped">fixture</span>{% endif %}</td>
+      <td>{{ d.window_start | local if d.window_start else "start" }} → {{ d.window_end | local }}</td>
+      <td>{{ d.item_count }}</td>
+      <td>{{ d.summarizer }}</td>
+      <td><span class="badge s-{{ d.status }}">{{ d.status }}</span> {{ d.error or "" }}</td>
+    </tr>
+    {% else %}<tr><td colspan="7" class="muted">No digests yet.</td></tr>{% endfor %}
+  </table>
+</div>
+{% endblock %}

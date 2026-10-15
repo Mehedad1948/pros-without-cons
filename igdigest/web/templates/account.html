@@ -1,0 +1,45 @@
+{% extends "base.html" %}
+{% block title %}@{{ acct.username }} · Instagram digest{% endblock %}
+{% block content %}
+<div class="card">
+  <h1>@{{ acct.username }}</h1>
+  <p class="small">
+    {% if acct.paused %}<span class="badge s-paused">paused</span> {% endif %}<span class="badge s-{{ acct.status }}">{{ acct.status }}</span>
+    · last check {{ acct.last_checked_at | local }} · last success {{ acct.last_success_at | local }}
+    · consecutive failures {{ acct.consecutive_failures }}{% if acct.next_attempt_at %} · scheduled retry not before {{ acct.next_attempt_at | local }}{% endif %}
+  </p>
+  {% if acct.last_error %}<pre>{{ acct.last_error }}</pre>{% endif %}
+  <form class="inline" method="post" action="/accounts/{{ acct.id }}/check"><button class="primary">Check now</button></form>
+</div>
+
+<div class="card">
+  <h2>Collected items ({{ items|length }})</h2>
+  {% for i in items %}
+  <div style="border-bottom:1px solid var(--line); padding:8px 0">
+    <div class="small">
+      <a href="{{ i.url }}" target="_blank" rel="noopener noreferrer">{{ "reel" if i.is_reel else i.media_type }} {{ i.shortcode or i.provider_post_id }}</a>
+      · published {{ i.published_at | local }} · collected {{ i.collected_at | local }} via {{ i.provider }}
+      · <span class="badge s-{{ 'ok' if i.extraction_status == 'full' else i.extraction_status }}">{{ i.extraction_status }}</span>
+      {% if i.is_initial %}<span class="badge">initial recap</span>{% endif %}
+      {% if i.is_fixture %}<span class="badge s-skipped">fixture</span>{% endif %}
+    </div>
+    {% if i.caption %}<pre>{{ i.caption }}</pre>{% else %}<p class="muted small">No caption.</p>{% endif %}
+    {% if i.ocr_text %}<details><summary class="small">OCR text</summary><pre>{{ i.ocr_text }}</pre></details>{% endif %}
+    {% if i.transcript %}<details><summary class="small">Transcript</summary><pre>{{ i.transcript }}</pre></details>{% endif %}
+    {% if i.extraction_notes %}<div class="small muted">Coverage notes: {{ i.extraction_notes }}</div>{% endif %}
+  </div>
+  {% else %}<p class="muted">Nothing collected yet.</p>{% endfor %}
+</div>
+
+<div class="card">
+  <h2>Check history</h2>
+  <table class="small">
+    <tr><th>Started</th><th>Trigger</th><th>Provider</th><th>Status</th><th>Fetched</th><th>New</th><th>Attempts</th><th>Error / notes</th></tr>
+    {% for r in runs %}
+    <tr><td>{{ r.started_at | local }}</td><td>{{ r.trigger }}</td><td>{{ r.provider }}</td>
+      <td><span class="badge s-{{ r.status }}">{{ r.status }}</span>{% if r.is_initial and r.status == "ok" %} <span class="badge">initial recap</span>{% endif %}</td>
+      <td>{{ r.fetched_count }}</td><td>{{ r.new_count }}</td><td>{{ r.attempts }}</td><td>{{ r.error or r.notes or "" }}</td></tr>
+    {% endfor %}
+  </table>
+</div>
+{% endblock %}

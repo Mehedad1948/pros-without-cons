@@ -1,0 +1,32 @@
+# Secrets and local configuration
+.env
+.env.*
+!.env.example
+
+# Runtime data: database, browser session state (cookies!), demo output, temp media
+data/
+*.db
+*.db-wal
+*.db-shm
+*.sqlite
+*storage_state*.json
+instagram_state.json
+session/
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+build/
+dist/
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Editors / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

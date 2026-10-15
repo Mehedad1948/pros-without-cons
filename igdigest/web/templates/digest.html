@@ -1,0 +1,63 @@
+{% extends "base.html" %}
+{% block title %}Digest #{{ d.id }} · Instagram digest{% endblock %}
+{% macro links(sources) -%}
+<span class="src">{% for s in sources %}<a href="{{ s.url }}" target="_blank" rel="noopener noreferrer" title="published {{ s.published }}">[{{ s.ref }}]</a>{% endfor %}</span>
+{%- endmacro %}
+{% block content %}
+<div class="card">
+  <h1>Digest #{{ d.id }} — {{ "Scheduled digest" if d.kind == "scheduled" else "Preview (does not mark posts as delivered)" }}</h1>
+  {% if d.is_fixture %}<div class="banner fixture">FIXTURE MODE digest: sample data, not real Instagram content.</div>{% endif %}
+  {% if d.status != "ok" %}<div class="banner" style="background:#fbe7e6;color:#b3261e">Digest generation failed: {{ d.error }}. Its posts were not marked as delivered.</div>{% endif %}
+  {% if c %}
+  <p class="small muted">
+    Window: {{ c.window_text }}<br>
+    Language: {{ c.language }} · Summarizer: {{ c.summarizer }} · New items: {{ c.item_count }} ·
+    <a href="/digests/{{ d.id }}/markdown">Markdown</a>
+  </p>
+  {% if c.status_message %}<p><b>{{ c.status_message }}</b></p>{% endif %}
+  {% if c.overview %}<h2>Overview</h2><p>{{ c.overview }}</p>{% endif %}
+  {% endif %}
+</div>
+
+{% if c %}
+{% for a in c.accounts %}
+<div class="card">
+  <h2>@{{ a.username }}{% if a.initial %} <span class="badge">initial recap</span>{% endif %}</h2>
+  {% if a.claims %}
+  <h3>What the creator says</h3>
+  <ul class="points">{% for p in a.claims %}<li>{{ p.text }} {{ links(p.sources) }}</li>{% endfor %}</ul>
+  {% endif %}
+  {% if a.interpretations %}
+  <h3>Interpretation <span class="muted small">(the app's analysis, not the creator's words)</span></h3>
+  <ul class="points">{% for p in a.interpretations %}<li>{{ p.text }} {{ links(p.sources) }}</li>{% endfor %}</ul>
+  {% endif %}
+  {% if a.other_posts %}<p class="small">Other new posts: {{ links(a.other_posts) }}</p>{% endif %}
+</div>
+{% endfor %}
+
+{% if c.themes %}
+<div class="card">
+  <h2>Recurring themes <span class="muted small">(interpretation)</span></h2>
+  <ul class="points">{% for t in c.themes %}<li>{{ t.text }} {{ links(t.sources) }}</li>{% endfor %}</ul>
+</div>
+{% endif %}
+
+<div class="card">
+  <h2>Coverage</h2>
+  <ul class="small">
+    {% set cov = c.coverage %}
+    {% if not (cov.failed or cov.unchecked or cov.partial_media) %}<li>All monitored accounts were checked and all media was processed.</li>{% endif %}
+    {% for f in cov.failed %}
+      <li><b>@{{ f.username }}</b>: <span class="badge s-{{ f.status }}">{{ f.status_text }}</span>
+        ({{ "latest check failed" if f.latest_failed else "an earlier check failed; a later one succeeded" }}; {{ f.failed_checks }} failed check(s)) — {{ f.error }}</li>
+    {% endfor %}
+    {% for u in cov.unchecked %}<li>@{{ u }}: not checked in this window</li>{% endfor %}
+    {% if cov.paused %}<li>Paused (not checked): {% for u in cov.paused %}@{{ u }} {% endfor %}</li>{% endif %}
+    {% for m in cov.partial_media %}
+      <li>Partial coverage <a href="{{ m.url }}" target="_blank" rel="noopener noreferrer">[{{ m.ref }}]</a> (@{{ m.username }}, {{ m.status }}): {{ m.notes | join("; ") or m.status }}</li>
+    {% endfor %}
+    {% for n in c.notes %}<li>Note: {{ n }}</li>{% endfor %}
+  </ul>
+</div>
+{% endif %}
+{% endblock %}

@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{% block title %}Instagram digest{% endblock %}</title>
+<style>
+  :root { --fg:#1d2329; --muted:#5f6b76; --bg:#f7f8fa; --card:#fff; --line:#e3e7eb; --accent:#2457c5;
+          --ok:#1e7d3c; --bad:#b3261e; --warn:#8a5a00; }
+  * { box-sizing: border-box; }
+  body { margin:0; font:15px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; color:var(--fg); background:var(--bg); }
+  header { background:var(--card); border-bottom:1px solid var(--line); padding:10px 16px; display:flex; gap:18px; align-items:center; flex-wrap:wrap; }
+  header a { color:var(--fg); text-decoration:none; font-weight:600; }
+  main { max-width:1100px; margin:0 auto; padding:16px; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:8px; padding:14px 16px; margin-bottom:16px; overflow-x:auto; }
+  h1 { font-size:22px; margin:0 0 12px; } h2 { font-size:17px; margin:0 0 10px; } h3 { font-size:15px; margin:14px 0 6px; }
+  table { border-collapse:collapse; width:100%; font-size:14px; }
+  th, td { text-align:left; padding:6px 8px; border-bottom:1px solid var(--line); vertical-align:top; }
+  th { color:var(--muted); font-weight:600; }
+  .muted { color:var(--muted); } .small { font-size:13px; }
+  .badge { display:inline-block; padding:1px 7px; border-radius:10px; font-size:12px; font-weight:600; background:#eef1f4; }
+  .s-ok { background:#e3f4e8; color:var(--ok); }
+  .s-failed, .s-login_required, .s-blocked, .s-not_accessible { background:#fbe7e6; color:var(--bad); }
+  .s-skipped, .s-new, .s-paused, .s-partial, .s-caption_only, .s-none, .s-pending { background:#fff3d6; color:var(--warn); }
+  .banner { padding:10px 14px; border-radius:8px; margin-bottom:16px; font-weight:600; }
+  .banner.fixture { background:#fff3d6; color:var(--warn); border:1px solid #f0d58c; }
+  .banner.msg { background:#e8effc; color:var(--accent); border:1px solid #c7d6f5; }
+  form.inline { display:inline; }
+  button { font:inherit; font-size:13px; padding:4px 10px; border:1px solid var(--line); border-radius:6px; background:#fff; cursor:pointer; }
+  button.primary { background:var(--accent); color:#fff; border-color:var(--accent); }
+  input[type=text] { font:inherit; padding:5px 8px; border:1px solid var(--line); border-radius:6px; width:min(420px, 100%); }
+  a { color:var(--accent); }
+  pre { white-space:pre-wrap; word-break:break-word; font-size:13px; background:#f3f5f7; padding:8px; border-radius:6px; }
+  .src a { font-size:12px; margin-left:3px; }
+  ul.points li { margin-bottom:4px; }
+</style>
+</head>
+<body>
+<header>
+  <a href="/">Instagram digest</a>
+  <a href="/updates">Updates</a>
+  <a href="/digests">Digests (LLM)</a>
+  <span class="muted small">provider: <b>{{ mode }}</b>{% if check_running %} · <b>check running…</b>{% endif %}</span>
+</header>
+<main>
+  {% if fixture %}<div class="banner fixture">FIXTURE MODE: data comes from the sample fixture file, not from Instagram.</div>{% endif %}
+  {% if msg %}<div class="banner msg">{{ msg }}</div>{% endif %}
+  {% block content %}{% endblock %}
+</main>
+</body>
+</html>

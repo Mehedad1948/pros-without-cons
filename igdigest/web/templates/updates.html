@@ -1,0 +1,19 @@
+{% extends "base.html" %}
+{% block title %}Updates · Instagram digest{% endblock %}
+{% block content %}
+<div class="card">
+  <h1>Updates <span class="muted small">new posts, no LLM</span></h1>
+  <table class="small">
+    <tr><th>#</th><th>Created</th><th>Kind</th><th>Window</th><th>New posts</th></tr>
+    {% for r in reports %}
+    <tr>
+      <td><a href="/updates/{{ r.id }}">{{ r.id }}</a></td>
+      <td>{{ r.created_at | local }}</td>
+      <td>{{ "report" if r.kind == "scheduled" else "preview" }} ({{ r.trigger }}){% if r.is_fixture %} <span class="badge s-skipped">fixture</span>{% endif %}</td>
+      <td>{{ r.window_start | local if r.window_start else "start" }} → {{ r.window_end | local }}</td>
+      <td>{{ r.item_count }}</td>
+    </tr>
+    {% else %}<tr><td colspan="5" class="muted">No updates reports yet.</td></tr>{% endfor %}
+  </table>
+</div>
+{% endblock %}

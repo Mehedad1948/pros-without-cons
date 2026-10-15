@@ -1,0 +1,40 @@
+{% extends "base.html" %}
+{% block title %}Updates #{{ r.id }} · Instagram digest{% endblock %}
+{% block content %}
+<div class="card">
+  <h1>New posts #{{ r.id }} — {{ "Report" if r.kind == "scheduled" else "Preview (does not mark posts as delivered)" }}</h1>
+  {% if c.is_fixture %}<div class="banner fixture">FIXTURE MODE report: sample data, not real Instagram content.</div>{% endif %}
+  <p class="small muted">Window: {{ c.window_text }} · New posts: {{ c.item_count }} · <a href="/updates/{{ r.id }}/markdown">Markdown</a></p>
+  {% if c.status_message %}<p><b>{{ c.status_message }}</b></p>{% endif %}
+</div>
+
+{% for a in c.accounts %}
+<div class="card">
+  <h2>@{{ a.username }}{% if a.initial %} <span class="badge">initial recap</span>{% endif %}</h2>
+  <ul class="points">
+    {% for p in a.posts %}
+    <li>
+      <span class="small muted">{{ p.published or "time unknown" }} · {{ p.type }}</span>
+      <a href="{{ p.url }}" target="_blank" rel="noopener noreferrer">open</a><br>
+      {% if p.caption %}{{ p.caption }}{% else %}<span class="muted">(no caption)</span>{% endif %}
+    </li>
+    {% endfor %}
+  </ul>
+</div>
+{% endfor %}
+
+<div class="card">
+  <h2>Checks</h2>
+  <ul class="small">
+    {% set cov = c.coverage %}
+    {% if not (cov.failed or cov.unchecked) %}<li>All monitored accounts were checked.</li>{% endif %}
+    {% for f in cov.failed %}
+      <li><b>@{{ f.username }}</b>: <span class="badge s-{{ f.status }}">{{ f.status_text }}</span>
+        ({{ "latest check failed" if f.latest_failed else "an earlier check failed; a later one succeeded" }}; {{ f.failed_checks }} failed check(s)) — {{ f.error }}</li>
+    {% endfor %}
+    {% for u in cov.unchecked %}<li>@{{ u }}: not checked in this window</li>{% endfor %}
+    {% if cov.paused %}<li>Paused (not checked): {% for u in cov.paused %}@{{ u }} {% endfor %}</li>{% endif %}
+    {% for n in c.notes %}<li>Note: {{ n }}</li>{% endfor %}
+  </ul>
+</div>
+{% endblock %}

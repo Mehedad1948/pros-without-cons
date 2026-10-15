@@ -1,0 +1,95 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="card">
+  <h2>Monitored accounts</h2>
+  <form method="post" action="/accounts" style="margin-bottom:12px">
+    <input type="text" name="value" placeholder="username, @username or instagram.com/username (several: comma separated)" required>
+    <button class="primary">Add</button>
+  </form>
+  {% if accounts %}
+  <table>
+    <tr><th>Account</th><th>Status</th><th>Last check</th><th>Last success</th><th>Items</th><th>Last error</th><th></th></tr>
+    {% for a in accounts %}
+    <tr>
+      <td><a href="/accounts/{{ a.id }}">@{{ a.username }}</a>{% if a.provider %} <span class="muted small">({{ a.provider }})</span>{% endif %}</td>
+      <td>{% if a.paused %}<span class="badge s-paused">paused</span> {% endif %}<span class="badge s-{{ a.status }}">{{ a.status }}</span></td>
+      <td class="small">{{ a.last_checked_at | local }}</td>
+      <td class="small">{{ a.last_success_at | local }}</td>
+      <td>{{ a.item_count }}</td>
+      <td class="small" style="max-width:280px">{{ a.last_error or "" }}</td>
+      <td style="white-space:nowrap">
+        <form class="inline" method="post" action="/accounts/{{ a.id }}/check"><button>Check</button></form>
+        {% if a.paused %}
+        <form class="inline" method="post" action="/accounts/{{ a.id }}/resume"><button>Resume</button></form>
+        {% else %}
+        <form class="inline" method="post" action="/accounts/{{ a.id }}/pause"><button>Pause</button></form>
+        {% endif %}
+        <form class="inline" method="post" action="/accounts/{{ a.id }}/delete" onsubmit="return confirm('Remove @{{ a.username }} and its collected items?')"><button>Remove</button></form>
+      </td>
+    </tr>
+    {% endfor %}
+  </table>
+  {% else %}<p class="muted">No accounts yet.</p>{% endif %}
+  <div style="margin-top:12px">
+    <form class="inline" method="post" action="/check"><button class="primary">Check all now</button></form>
+  </div>
+</div>
+
+<div class="card">
+  <h2>Updates <span class="muted small">new posts with links · no LLM needed</span></h2>
+  <p class="small muted">
+    {% if settings.updates_enabled and settings.updates_after_check %}A report is written after each scheduled check when there are new posts or failed checks.
+    {% else %}Automatic reports are off (IGD_UPDATES_ENABLED / IGD_UPDATES_AFTER_CHECK); create them manually.{% endif %}
+  </p>
+  <form class="inline" method="post" action="/updates"><input type="hidden" name="kind" value="preview"><button>Preview new posts</button></form>
+  <form class="inline" method="post" action="/updates"><input type="hidden" name="kind" value="scheduled"><button class="primary">New posts report (marks delivered)</button></form>
+  {% if updates %}
+  <ul>{% for u in updates %}
+    <li><a href="/updates/{{ u.id }}">#{{ u.id }} {{ "report" if u.kind == "scheduled" else "preview" }}</a> · {{ u.created_at | local }} · {{ u.item_count }} new post(s)
+      {% if u.is_fixture %}<span class="badge s-skipped">fixture</span>{% endif %}</li>
+  {% endfor %}</ul>
+  {% else %}<p class="muted small">No updates reports yet.</p>{% endif %}
+</div>
+
+<div class="card">
+  <h2>Digest <span class="muted small">LLM recap · optional</span></h2>
+  {% if digest_available %}
+  <p class="small muted">{{ settings.llm_provider }} / {{ settings.resolved_llm_model }} · language {{ settings.digest_language }} · daily at {{ settings.digest_time }} ({{ settings.timezone }})</p>
+  <form class="inline" method="post" action="/digests"><input type="hidden" name="kind" value="preview"><button>Preview digest</button></form>
+  <form class="inline" method="post" action="/digests" onsubmit="return confirm('Generate a digest now and mark its posts as delivered for digests?')"><input type="hidden" name="kind" value="scheduled"><button>Generate digest now (marks delivered)</button></form>
+  {% else %}
+  <p class="small">Off: no LLM configured{% if not settings.digest_enabled %} (IGD_DIGEST_ENABLED=false){% endif %}. Set <code>IGD_LLM_PROVIDER</code> and a key to enable it. Updates work without it.</p>
+  {% endif %}
+  {% if digests %}
+  <ul>{% for d in digests %}
+    <li><a href="/digests/{{ d.id }}">#{{ d.id }} {{ d.kind }}</a> · {{ d.created_at | local }} · {{ d.item_count }} item(s)
+      {% if d.status != "ok" %}<span class="badge s-failed">{{ d.status }}</span>{% endif %}
+      {% if d.is_fixture %}<span class="badge s-skipped">fixture</span>{% endif %}</li>
+  {% endfor %}</ul>
+  {% endif %}
+</div>
+
+<div class="card">
+  <h2>Status</h2>
+  <table class="small">
+    <tr><th>Collection provider</th><td>{{ mode }}{% if mode in ("browser", "auto") %} · browser session {{ "saved" if session_saved else "missing (run igdigest login)" }}{% endif %}</td></tr>
+    <tr><th>Schedule</th><td>checks every {{ settings.check_interval_hours }} h{% if digest_available %} · LLM digest daily at {{ settings.digest_time }} ({{ settings.timezone }}){% endif %}</td></tr>
+    {% for j in jobs %}<tr><th>Next: {{ j.name }}</th><td>{{ j.next.strftime("%Y-%m-%d %H:%M %Z") if j.next else "—" }}</td></tr>{% endfor %}
+    {% if not jobs %}<tr><th>Scheduler</th><td>not running in this process</td></tr>{% endif %}
+    <tr><th>OCR</th><td>{{ capabilities.ocr }}</td></tr>
+    <tr><th>Transcription</th><td>{{ capabilities.transcription }}</td></tr>
+  </table>
+</div>
+
+<div class="card">
+  <h2>Recent checks</h2>
+  <table class="small">
+    <tr><th>When</th><th>Account</th><th>Trigger</th><th>Provider</th><th>Status</th><th>New</th><th>Error / notes</th></tr>
+    {% for r in runs %}
+    <tr><td>{{ r.started_at | local }}</td><td>@{{ r.username }}</td><td>{{ r.trigger }}</td><td>{{ r.provider }}</td>
+      <td><span class="badge s-{{ r.status }}">{{ r.status }}</span>{% if r.is_initial and r.status == "ok" %} <span class="badge">initial recap</span>{% endif %}</td>
+      <td>{{ r.new_count }}</td><td>{{ r.error or r.notes or "" }}</td></tr>
+    {% endfor %}
+  </table>
+</div>
+{% endblock %}

@@ -76,6 +76,7 @@
     <tr><th>Schedule</th><td>checks every {{ settings.check_interval_hours }} h{% if digest_available %} · LLM digest daily at {{ settings.digest_time }} ({{ settings.timezone }}){% endif %}</td></tr>
     {% for j in jobs %}<tr><th>Next: {{ j.name }}</th><td>{{ j.next.strftime("%Y-%m-%d %H:%M %Z") if j.next else "—" }}</td></tr>{% endfor %}
     {% if not jobs %}<tr><th>Scheduler</th><td>not running in this process</td></tr>{% endif %}
+    <tr><th>Telegram bot</th><td>{% if settings.telegram_enabled %}runs inside this server{% else %}not started here (run <code>igdigest bot</code> or set IGD_TELEGRAM_ENABLED=true){% endif %} · {{ telegram_chats }} subscribed chat(s)</td></tr>
     <tr><th>OCR</th><td>{{ capabilities.ocr }}</td></tr>
     <tr><th>Transcription</th><td>{{ capabilities.transcription }}</td></tr>
   </table>

@@ -197,12 +197,12 @@ def _check_account(db, settings, run_id, trigger, acct, prov: Provider, extracto
                 """
                 INSERT OR IGNORE INTO items (account_id, post_key, provider_post_id, shortcode, provider,
                     is_fixture, url, media_type, is_reel, published_at, caption, collected_at,
-                    check_run_id, is_initial)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    check_run_id, is_initial, thumbnail_url)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (acct["id"], p.key, p.post_id, p.shortcode, provider_name, int(prov.is_fixture), p.url,
                  p.media_type, int(p.is_reel), iso(p.published_at), p.caption, now_s, check_id,
-                 int(is_initial)),
+                 int(is_initial), p.thumbnail_url),
             )
             if cur.rowcount == 1:
                 inserted.append((cur.lastrowid, p))
@@ -231,6 +231,13 @@ def _check_account(db, settings, run_id, trigger, acct, prov: Provider, extracto
             "initial_import_at = COALESCE(initial_import_at, ?) WHERE id = ?",
             (finished, finished, finished, acct["id"]),
         )
+        profile = prov.last_profile or {}
+        if profile.get("full_name") or profile.get("profile_pic_url"):
+            conn.execute(
+                "UPDATE accounts SET full_name = COALESCE(?, full_name), "
+                "profile_pic_url = COALESCE(?, profile_pic_url) WHERE id = ?",
+                (profile.get("full_name"), profile.get("profile_pic_url"), acct["id"]),
+            )
     return AccountResult(username, "ok", provider_name, len(inserted), fetched, is_initial, attempts, notes=notes)
 
 

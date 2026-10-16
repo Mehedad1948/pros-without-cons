@@ -27,6 +27,7 @@ class RawPost:
     published_at: datetime | None = None
     caption: str | None = None
     media: list[MediaRef] = field(default_factory=list)
+    thumbnail_url: str | None = None  # cover image (also for reels/carousels), for display
 
     @property
     def key(self) -> str:
@@ -83,6 +84,9 @@ class Provider(ABC):
 
     def close(self) -> None:  # noqa: B027 - optional hook
         pass
+
+    # Profile details seen during the last fetch_recent, if any: {"full_name", "profile_pic_url"}.
+    last_profile: dict | None = None
 
     @property
     def last_used(self) -> str:

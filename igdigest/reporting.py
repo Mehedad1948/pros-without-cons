@@ -45,7 +45,7 @@ def undelivered_items(conn: sqlite3.Connection, report_table: str) -> list[sqlit
     link_table, link_col = _DELIVERY[report_table]
     return conn.execute(
         f"""
-        SELECT i.*, a.username FROM items i JOIN accounts a ON a.id = i.account_id
+        SELECT i.*, a.username, a.full_name, a.profile_pic_url FROM items i JOIN accounts a ON a.id = i.account_id
         WHERE i.id NOT IN (
             SELECT l.item_id FROM {link_table} l JOIN {report_table} r ON r.id = l.{link_col}
             WHERE r.kind = 'scheduled' AND r.status = 'ok'

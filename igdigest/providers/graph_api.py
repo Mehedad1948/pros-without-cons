@@ -58,7 +58,9 @@ class GraphAPIProvider(Provider):
         self._client.close()
 
     def fetch_recent(self, username: str, limit: int) -> list[RawPost]:
-        fields = f"business_discovery.username({username}){{username,media.limit({int(limit)}){{{_MEDIA_FIELDS}}}}}"
+        self.last_profile = None
+        fields = (f"business_discovery.username({username}){{username,name,profile_picture_url,"
+                  f"media.limit({int(limit)}){{{_MEDIA_FIELDS}}}}}")
         try:
             resp = self._client.get(
                 f"{GRAPH_BASE}/{self._version}/{self._user_id}",
@@ -75,7 +77,9 @@ class GraphAPIProvider(Provider):
         if resp.status_code >= 400 or "error" in body:
             raise _map_error(resp.status_code, body.get("error") or {})
 
-        media = (body.get("business_discovery") or {}).get("media", {}).get("data", [])
+        discovery = body.get("business_discovery") or {}
+        self.last_profile = {"full_name": discovery.get("name"), "profile_pic_url": discovery.get("profile_picture_url")}
+        media = discovery.get("media", {}).get("data", [])
         return [_to_post(m) for m in media][:limit]
 
     def download(self, media: MediaRef, dest_dir: Path, max_bytes: int) -> Path:
@@ -115,6 +119,9 @@ def _to_post(m: dict) -> RawPost:
         url = s.get("media_url")
         note = None if url else "Instagram withheld media_url (often copyrighted content such as licensed audio)"
         media.append(MediaRef(kind=kind, url=url, note=note))
+    children = (m.get("children") or {}).get("data") or []
+    first = children[0] if children else m
+    thumbnail = first.get("thumbnail_url") or (first.get("media_url") if (first.get("media_type") or "").upper() != "VIDEO" else None)
     ts = m.get("timestamp")
     published = datetime.strptime(ts, "%Y-%m-%dT%H:%M:%S%z") if ts else None
     shortcode = m.get("shortcode")
@@ -127,4 +134,5 @@ def _to_post(m: dict) -> RawPost:
         published_at=published,
         caption=m.get("caption"),
         media=media,
+        thumbnail_url=m.get("thumbnail_url") or thumbnail,
     )

@@ -161,6 +161,37 @@ def cmd_serve(args, s: Settings) -> int:
     return 0
 
 
+def cmd_bot(args, s: Settings) -> int:
+    import threading
+
+    from .telegram.bot import build_bot
+
+    db = init_db(s.database_file)
+    try:
+        bot = build_bot(db, s)
+    except ValueError as e:
+        print(str(e), file=sys.stderr)
+        return 1
+    sched = None
+    if s.scheduler_enabled and not args.no_scheduler:
+        from .scheduler import create_scheduler
+
+        sched = create_scheduler(db, s)
+        sched.start()
+    print("Starting the Telegram bot" + (" with the scheduler" if sched else "") + ". Press Ctrl+C to stop.", flush=True)
+    stop = threading.Event()
+    ok = True
+    try:
+        ok = bot.run(stop)
+    except KeyboardInterrupt:
+        pass
+    finally:
+        stop.set()
+        if sched:
+            sched.shutdown(wait=False)
+    return 0 if ok else 1
+
+
 def cmd_demo(args, s: Settings) -> int:
     """End-to-end fixture run in an isolated database. Needs no credentials."""
     demo_dir = s.data_dir / "demo"
@@ -258,6 +289,8 @@ def build_parser() -> argparse.ArgumentParser:
     sv.add_argument("--host")
     sv.add_argument("--port", type=int)
     sv.add_argument("--no-scheduler", action="store_true")
+    b = sub.add_parser("bot", help="run the Telegram bot (and the scheduler) without the web app")
+    b.add_argument("--no-scheduler", action="store_true")
     sub.add_parser("demo", help="end-to-end fixture demonstration in data/demo (no credentials needed)")
     return p
 
@@ -274,7 +307,7 @@ def main(argv: list[str] | None = None) -> int:
     handlers = {
         "init-db": cmd_init_db, "add": cmd_add, "remove": cmd_remove, "list": cmd_list,
         "login": cmd_login, "collect": cmd_collect, "updates": cmd_updates, "digest": cmd_digest,
-        "serve": cmd_serve,
+        "serve": cmd_serve, "bot": cmd_bot,
         "demo": cmd_demo,
         "pause": lambda a, st: cmd_pause(a, st, True),
         "resume": lambda a, st: cmd_pause(a, st, False),

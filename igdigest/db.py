@@ -124,6 +124,42 @@ MIGRATIONS: list[str] = [
         PRIMARY KEY (report_id, item_id)
     );
     """,
+    # 3: Telegram bot - chats, per-chat delivery log, polling offset
+    """
+    CREATE TABLE telegram_chats (
+        chat_id INTEGER PRIMARY KEY,
+        user_id INTEGER NOT NULL,
+        username TEXT,
+        subscribed INTEGER NOT NULL DEFAULT 1,
+        subscribed_at TEXT NOT NULL,
+        state TEXT,                                     -- pending conversation step, e.g. await_add
+        last_failure_sig TEXT                           -- failures in the last sent no-new-posts report
+    );
+
+    CREATE TABLE telegram_deliveries (
+        id INTEGER PRIMARY KEY,
+        chat_id INTEGER NOT NULL REFERENCES telegram_chats(chat_id) ON DELETE CASCADE,
+        source TEXT NOT NULL,                           -- update_report|digest
+        source_id INTEGER NOT NULL,
+        status TEXT NOT NULL,                           -- pending|sent|skipped|failed
+        parts_sent INTEGER NOT NULL DEFAULT 0,
+        attempts INTEGER NOT NULL DEFAULT 0,
+        updated_at TEXT NOT NULL,
+        error TEXT,
+        UNIQUE (chat_id, source, source_id)
+    );
+
+    CREATE TABLE telegram_state (
+        key TEXT PRIMARY KEY,
+        value TEXT
+    );
+    """,
+    # 4: display details for messages - account name/picture, post cover image
+    """
+    ALTER TABLE accounts ADD COLUMN full_name TEXT;
+    ALTER TABLE accounts ADD COLUMN profile_pic_url TEXT;
+    ALTER TABLE items ADD COLUMN thumbnail_url TEXT;
+    """,
 ]
 
 

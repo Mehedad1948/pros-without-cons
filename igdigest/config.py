@@ -84,6 +84,16 @@ class Settings(BaseSettings):
     digest_language: str = "English"
     max_items_per_digest: int = 60
 
+    # --- Telegram bot ------------------------------------------------------
+    telegram_enabled: bool = False  # also start the bot inside `igdigest serve`
+    telegram_bot_token: SecretStr | None = None
+    # Comma-separated Telegram user IDs allowed to use the bot. Empty = nobody.
+    telegram_allowed_user_ids: str = ""
+    # Proxy for api.telegram.org, e.g. socks5h://127.0.0.1:10808 (HTTPS_PROXY is also honoured).
+    telegram_proxy: str | None = None
+    telegram_send_digests: bool = True
+    telegram_poll_timeout: int = 25
+
     # --- web ---------------------------------------------------------------
     web_host: str = "127.0.0.1"
     web_port: int = 8000
@@ -121,6 +131,10 @@ class Settings(BaseSettings):
     @property
     def is_fixture_mode(self) -> bool:
         return self.provider == "fixture"
+
+    @property
+    def telegram_allowed_ids(self) -> set[int]:
+        return {int(x) for x in self.telegram_allowed_user_ids.replace(";", ",").split(",") if x.strip().isdigit()}
 
     @property
     def digest_available(self) -> bool:

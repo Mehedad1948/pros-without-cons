@@ -1,7 +1,7 @@
 """Best-effort local browser connector (Playwright) using your own saved Instagram session.
 
-It reads what your logged-in account can normally see, the same way the Instagram web app
-does, one profile at a time with a fixed pause between profiles. It does NOT bypass
+It opens each profile page like a normal visit and reads the post data that page loads by
+itself (it makes no extra API calls), one profile at a time with a fixed pause between profiles. It does NOT bypass
 CAPTCHAs or challenges, rotate proxies/accounts, or spoof fingerprints: when Instagram asks
 for login or shows a challenge it raises LoginRequired / CollectionBlocked and the run stops.
 
@@ -32,20 +32,16 @@ from .base import (
 )
 
 IG = "https://www.instagram.com"
-# Public app id that instagram.com's own web client sends with its API requests.
-_WEB_APP_ID = "936619743392459"
+# Data the profile page fetches for its post grid (instagram.com web client, observed 2026-10).
+_TIMELINE_KEY = "xdt_api__v1__feed__user_timeline_graphql_connection"
+_NOT_FOUND_TEXT = ("sorry, this page isn't available", "page not found")
+_PRIVATE_TEXT = ("this account is private",)
 _CHALLENGE_MARKERS = ("/challenge", "/checkpoint", "/accounts/suspended", "/auth_platform")
-
-_PROFILE_JS = """
-async (username) => {
-  const r = await fetch('/api/v1/users/web_profile_info/?username=' + encodeURIComponent(username), {
-    credentials: 'include',
-    headers: {'x-ig-app-id': '%s', 'x-requested-with': 'XMLHttpRequest'}
-  });
-  return {status: r.status, url: r.url, text: await r.text()};
-}
-""" % _WEB_APP_ID
-
+_CONSENT_MARKER = "instagram.com/consent"
+CONSENT_MESSAGE = (
+    "Instagram is asking this session to choose cookie settings (consent page). "
+    "Run `igdigest login` and make the choice in the browser window."
+)
 
 def _playwright():
     try:
@@ -116,39 +112,65 @@ class BrowserProvider(Provider):
     # --- collection ------------------------------------------------------------
     def fetch_recent(self, username: str, limit: int) -> list[RawPost]:
         page = self._ensure_open()
-        try:
-            resp = page.goto(f"{IG}/{username}/", wait_until="domcontentloaded")
-        except Exception as e:
-            raise TransientError(f"Profile page did not load: {type(e).__name__}") from e
-        self._check_page_state(page.url, resp.status if resp else None)
+        self.last_profile = None
+        captured: list[dict] = []
+        refused: list[int] = []
 
-        try:
-            result = page.evaluate(_PROFILE_JS, username)
-        except Exception as e:
-            raise TransientError(f"Profile request failed in the page: {type(e).__name__}") from e
+        def on_response(resp) -> None:
+            if "instagram.com" not in resp.url or "graphql" not in resp.url:
+                return
+            if resp.status == 429:
+                refused.append(resp.status)
+                return
+            if resp.status != 200:
+                return
+            try:
+                text = resp.text()
+            except Exception:
+                return
+            if _TIMELINE_KEY in text:
+                try:
+                    captured.append(json.loads(text))
+                except ValueError:
+                    pass
 
-        status, text = result.get("status"), result.get("text") or ""
-        self._check_api_response(status, result.get("url") or "", text)
+        page.on("response", on_response)
         try:
-            data = json.loads(text)
-        except ValueError:
-            # Endpoint shape changed or returned HTML; fall back to reading the profile grid.
-            return self._fallback_dom(username, limit)
+            try:
+                resp = page.goto(f"{IG}/{username}/", wait_until="domcontentloaded")
+            except Exception as e:
+                raise TransientError(f"Profile page did not load: {type(e).__name__}") from e
+            self._check_page_state(page.url, resp.status if resp else None)
+            deadline = time.monotonic() + min(20.0, self.timeout_ms / 1000)
+            while not captured and not refused and time.monotonic() < deadline:
+                page.wait_for_timeout(500)
+            self._check_page_state(page.url, None)  # late redirects to login/consent/challenge
+        finally:
+            page.remove_listener("response", on_response)
 
-        user = (data.get("data") or {}).get("user")
-        if not user:
+        if captured:
+            self.last_profile = profile_from_timeline(captured[0], username)
+            return parse_timeline(captured[0])[:limit]
+        if refused:
+            raise CollectionBlocked(
+                "Instagram refused the profile's post data (HTTP 429): a rate limit, or a block on this "
+                "session/network. Stopping; wait a few hours before checking again."
+            )
+        try:
+            body = page.inner_text("body", timeout=5000)[:5000].lower()
+        except Exception:
+            body = ""
+        if any(t in body for t in _NOT_FOUND_TEXT):
             raise AccountNotAccessible(f"@{username} was not found or is unavailable.")
-        edges = (user.get("edge_owner_to_timeline_media") or {}).get("edges", [])
-        if user.get("is_private") and not user.get("followed_by_viewer") and not edges:
+        if any(t in body for t in _PRIVATE_TEXT):
             raise AccountNotAccessible(f"@{username} is private and your account does not follow it.")
-        posts = [_node_to_post(e.get("node") or {}) for e in edges]
-        posts = [p for p in posts if p is not None]
-        if not posts and (user.get("edge_owner_to_timeline_media") or {}).get("count"):
-            return self._fallback_dom(username, limit)
-        return posts[:limit]
+        # The page loaded but its post data was not recognised (layout changed?): read the grid instead.
+        return self._fallback_dom(username, limit)
 
     def _check_page_state(self, url: str, status: int | None) -> None:
         low = url.lower()
+        if _CONSENT_MARKER in low:
+            raise CollectionBlocked(CONSENT_MESSAGE)
         if any(m in low for m in _CHALLENGE_MARKERS):
             raise CollectionBlocked("Instagram presented a challenge/checkpoint. Resolve it in a normal browser, then run `igdigest login`.")
         if "/accounts/login" in low:
@@ -159,21 +181,6 @@ class BrowserProvider(Provider):
             raise AccountNotAccessible("Profile not found (HTTP 404).")
         if status and status >= 500:
             raise TransientError(f"Instagram returned HTTP {status}.")
-
-    def _check_api_response(self, status: int | None, url: str, text: str) -> None:
-        low = text[:2000].lower()
-        if "checkpoint_required" in low or "challenge_required" in low or any(m in url.lower() for m in _CHALLENGE_MARKERS):
-            raise CollectionBlocked("Instagram requires a challenge/checkpoint. Resolve it manually, then run `igdigest login`.")
-        if "login_required" in low or "/accounts/login" in url.lower() or status == 401:
-            raise LoginRequired("Instagram session expired. Run `igdigest login`.")
-        if status == 429 or "please wait a few minutes" in low:
-            raise CollectionBlocked("Instagram rate-limited this session. Stopping.")
-        if status == 404:
-            raise AccountNotAccessible("Profile not found (HTTP 404).")
-        if status and status >= 500:
-            raise TransientError(f"Instagram returned HTTP {status}.")
-        if status and status >= 400:
-            raise ProviderError(f"Instagram returned HTTP {status}.")
 
     def _fallback_dom(self, username: str, limit: int) -> list[RawPost]:
         """Read post links from the profile grid and open each one (bounded) for its metadata."""
@@ -227,34 +234,60 @@ class BrowserProvider(Provider):
         return path
 
 
-def _node_to_post(node: dict) -> RawPost | None:
-    code = node.get("shortcode")
+def parse_timeline(data: dict) -> list[RawPost]:
+    """Posts from the profile page's own timeline response (pinned posts included; caller sorts)."""
+    connection = (data.get("data") or {}).get(_TIMELINE_KEY) or {}
+    posts = [_timeline_node_to_post(e.get("node") or {}) for e in connection.get("edges") or []]
+    return [p for p in posts if p is not None]
+
+
+def profile_from_timeline(data: dict, username: str) -> dict | None:
+    """Display name and picture of the profile owner (co-authored posts carry other users)."""
+    connection = (data.get("data") or {}).get(_TIMELINE_KEY) or {}
+    for edge in connection.get("edges") or []:
+        user = (edge.get("node") or {}).get("user") or {}
+        if (user.get("username") or "").lower() == username.lower():
+            return {"full_name": user.get("full_name") or None, "profile_pic_url": user.get("profile_pic_url")}
+    return None
+
+
+def _cover_url(node: dict) -> str | None:
+    candidates = (node.get("image_versions2") or {}).get("candidates") or []
+    return candidates[0].get("url") if candidates else None
+
+
+def _media_ref(node: dict) -> MediaRef:
+    videos = node.get("video_versions") or []
+    if node.get("media_type") == 2 or videos:
+        url = videos[0].get("url") if videos else None
+        return MediaRef(kind="video", url=url, note=None if url else "video URL not exposed by the page")
+    url = _cover_url(node)
+    return MediaRef(kind="image", url=url, note=None if url else "image URL not exposed by the page")
+
+
+def _timeline_node_to_post(node: dict) -> RawPost | None:
+    code = node.get("code")
     if not code:
         return None
-    typename = node.get("__typename", "")
+    children = node.get("carousel_media") or []
     is_reel = node.get("product_type") == "clips"
-    caption_edges = (node.get("edge_media_to_caption") or {}).get("edges") or []
-    caption = (caption_edges[0].get("node") or {}).get("text") if caption_edges else None
-    children = (node.get("edge_sidecar_to_children") or {}).get("edges") or []
-    sources = [c.get("node") or {} for c in children] or [node]
-    media = []
-    for s in sources:
-        if s.get("is_video"):
-            url = s.get("video_url")
-            media.append(MediaRef(kind="video", url=url, note=None if url else "video URL not exposed on the profile page"))
-        else:
-            media.append(MediaRef(kind="image", url=s.get("display_url")))
-    ts = node.get("taken_at_timestamp")
-    media_type = "carousel" if typename == "GraphSidecar" or children else ("video" if node.get("is_video") else "image")
+    ts = node.get("taken_at")
+    if children or node.get("media_type") == 8:
+        media_type = "carousel"
+    elif node.get("media_type") == 2:
+        media_type = "video"
+    else:
+        media_type = "image"
     return RawPost(
-        post_id=str(node.get("id") or code),
+        post_id=str(node.get("pk") or node.get("id") or code),
         shortcode=code,
         url=f"{IG}/{'reel' if is_reel else 'p'}/{code}/",
         media_type=media_type,
         is_reel=is_reel,
         published_at=datetime.fromtimestamp(ts, tz=timezone.utc) if ts else None,
-        caption=caption,
-        media=media,
+        caption=(node.get("caption") or {}).get("text"),
+        media=[_media_ref(c) for c in (children or [node])],
+        thumbnail_url=_cover_url(node) or (_cover_url(children[0]) if children else None),
     )
 
 
@@ -268,30 +301,50 @@ def interactive_login(session_path: Path, proxy: str | None, timeout_minutes: fl
     sync_playwright = _playwright()
     with sync_playwright() as p:
         browser = p.chromium.launch(**launch_options(False, proxy))
-        context = browser.new_context()
+        # Reuse a saved session so an existing login only needs the remaining steps (e.g. consent).
+        context = browser.new_context(storage_state=str(session_path) if session_exists(session_path) else None)
         page = context.new_page()
-        page.goto(f"{IG}/accounts/login/")
-        print("A browser window is open. Sign in to Instagram there and complete any 2FA.")
-        print("Do not type your password here. Waiting for the login to finish...")
         deadline = time.monotonic() + timeout_minutes * 60
-        logged_in = False
-        while time.monotonic() < deadline:
-            try:
-                cookies = context.cookies(IG)
-            except Exception:
-                break  # browser closed by the user
-            if any(c.get("name") == "sessionid" and c.get("value") for c in cookies):
-                logged_in = True
-                break
-            try:
-                page.wait_for_timeout(2000)
-            except Exception:
-                break
-        if logged_in:
-            page.wait_for_timeout(2000)  # let post-login cookies settle
-            save_session_state(session_path, context.storage_state())
+
+        def logged_in() -> bool:
+            return any(c.get("name") == "sessionid" and c.get("value") for c in context.cookies(IG))
+
+        def wait_until(done) -> bool:
+            while time.monotonic() < deadline:
+                try:
+                    if done():
+                        return True
+                    page.wait_for_timeout(2000)
+                except Exception:
+                    return False  # browser closed by the user
+            return False
+
+        ok = False
+        try:
+            if not logged_in():
+                page.goto(f"{IG}/accounts/login/")
+                print("A browser window is open. Sign in to Instagram there and complete any 2FA.")
+                print("Do not type your password here. Waiting for the login to finish...")
+                ok = wait_until(logged_in)
+            else:
+                print("Using the saved session.")
+                ok = True
+            if ok:
+                page.wait_for_timeout(2000)  # let post-login cookies settle
+                page.goto(f"{IG}/instagram/", wait_until="domcontentloaded")
+                if _CONSENT_MARKER in page.url.lower():
+                    print("Instagram is asking for your cookie choice. Choose an option in the browser window.")
+                    print("(If the page does not change afterwards, open any profile in that window.)")
+                    ok = wait_until(lambda: _CONSENT_MARKER not in page.url.lower() and logged_in())
+                    if ok:
+                        print("Cookie choice saved.")
+            if ok:
+                save_session_state(session_path, context.storage_state())
+        except Exception as e:
+            print(f"Login window closed or failed: {type(e).__name__}")
+            ok = False
         try:
             browser.close()
         except Exception:
             pass
-    return logged_in
+    return ok

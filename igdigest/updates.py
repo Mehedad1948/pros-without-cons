@@ -75,18 +75,23 @@ def _build(db, settings, kind, trigger, skip_if_empty) -> int | None:
 
     accounts: dict[str, dict] = {}
     for it in items:
-        acc = accounts.setdefault(it["username"], {"username": it["username"], "initial": True, "posts": []})
+        acc = accounts.setdefault(it["username"], {
+            "username": it["username"], "full_name": it["full_name"], "profile_pic_url": it["profile_pic_url"],
+            "initial": True, "posts": [],
+        })
         acc["initial"] = acc["initial"] and bool(it["is_initial"])
         acc["posts"].append({
             "url": it["url"],
             "published": fmt_local(it["published_at"], settings.tz) if it["published_at"] else None,
+            "published_at": it["published_at"],
+            "thumbnail_url": it["thumbnail_url"],
             "type": "reel" if it["is_reel"] else (it["media_type"] or "post"),
             "caption": excerpt(it["caption"]),
             "has_extracted_text": bool(it["ocr_text"] or it["transcript"]),
             "extraction_status": it["extraction_status"],
         })
     for acc in accounts.values():
-        acc["posts"].sort(key=lambda p: p["published"] or "", reverse=True)
+        acc["posts"].sort(key=lambda p: p["published_at"] or "", reverse=True)
 
     content = {
         "kind": kind,

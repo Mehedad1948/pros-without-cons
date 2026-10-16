@@ -38,6 +38,10 @@ class AutoProvider(Provider):
     def last_used(self) -> str:
         return self._last.name if self._last else self.name
 
+    @property
+    def last_profile(self) -> dict | None:
+        return self._last.last_profile if self._last else None
+
     def close(self) -> None:
         for p in (self.graph, self.browser):
             if p is not None:

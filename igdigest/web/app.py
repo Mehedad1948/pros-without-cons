@@ -40,7 +40,17 @@ def create_app(settings: Settings, *, start_scheduler: bool | None = None) -> Fa
             sched = create_scheduler(db, settings)
             sched.start()
             state["scheduler"] = sched
+        bot_stop = None
+        if settings.telegram_enabled:
+            from ..telegram.bot import start_bot_thread
+
+            try:
+                _, bot_stop = start_bot_thread(db, settings)
+            except ValueError as e:
+                log.error("Telegram bot not started: %s", e)
         yield
+        if bot_stop:
+            bot_stop.set()
         if state["scheduler"]:
             state["scheduler"].shutdown(wait=False)
 
@@ -56,6 +66,10 @@ def create_app(settings: Settings, *, start_scheduler: bool | None = None) -> Fa
                 return PlainTextResponse("Cross-origin request blocked", status_code=403)
         return await call_next(request)
 
+    def _telegram_chats() -> int:
+        with db.read() as conn:
+            return conn.execute("SELECT COUNT(*) FROM telegram_chats WHERE subscribed = 1").fetchone()[0]
+
     def ctx(request: Request, **extra) -> dict:
         jobs = []
         if state["scheduler"]:
@@ -68,6 +82,7 @@ def create_app(settings: Settings, *, start_scheduler: bool | None = None) -> Fa
             "fixture": settings.is_fixture_mode,
             "session_saved": session_exists(settings.session_file),
             "digest_available": settings.digest_available,
+            "telegram_chats": _telegram_chats(),
             "check_running": lock_held(db, LOCK_NAME),
             "jobs": jobs,
             "msg": request.query_params.get("msg"),
